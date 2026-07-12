@@ -1,0 +1,1026 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#0b1220">
+<title>Family Tree Live</title>
+<style>
+:root{
+  --bg0:#0b1220; --bg1:#101a30; --card:#16233d; --card2:#1c2c4c;
+  --line:#2c3e63; --text:#e8eefb; --muted:#8fa0; --mut:#8ea3c8;
+  --gold:#f5b53f; --male:#4ec3f7; --female:#f77fb0; --other:#b18cf7;
+  --danger:#ef6461; --ok:#4ade80;
+}
+*{box-sizing:border-box; -webkit-tap-highlight-color:transparent}
+html,body{height:100%}
+body{margin:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Inter,Roboto,sans-serif;
+  background:radial-gradient(1200px 800px at 70% -10%,#1b2a4d 0%,var(--bg0) 55%) fixed;
+  color:var(--text);overflow:hidden}
+button{font:inherit;cursor:pointer;border:0;border-radius:10px}
+input,select,textarea{font:inherit;color:var(--text);background:#0e1830;border:1px solid var(--line);
+  border-radius:10px;padding:9px 11px;width:100%}
+input:focus,select:focus,textarea:focus{outline:2px solid #3b82f680;border-color:#3b82f6}
+.hidden{display:none!important}
+
+/* ---------- full-page screens ---------- */
+.screen{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;padding:20px;z-index:50;
+  background:radial-gradient(1200px 800px at 70% -10%,#1b2a4d 0%,var(--bg0) 55%)}
+.screenCard{width:100%;max-width:460px;background:var(--card);border:1px solid var(--line);
+  border-radius:20px;padding:28px;box-shadow:0 24px 70px #0009}
+.logo{font-size:40px;text-align:center}
+.screenCard h1{font-size:22px;text-align:center;margin:8px 0 4px}
+.screenCard p{color:var(--mut);font-size:14px;line-height:1.5;text-align:center;margin:6px 0 16px}
+.bigBtn{display:block;width:100%;padding:13px;border-radius:12px;font-weight:600;font-size:15px;
+  background:linear-gradient(135deg,#f5b53f,#f08a3c);color:#1a1206;margin-top:12px}
+.bigBtn.alt{background:#233457;color:var(--text);border:1px solid var(--line)}
+.err{color:var(--danger);font-size:13px;text-align:center;margin-top:10px;min-height:18px}
+#cfgText{height:150px;font-family:ui-monospace,Menlo,monospace;font-size:12px}
+
+/* ---------- top bar ---------- */
+#topbar{position:fixed;top:0;left:0;right:0;z-index:20;display:flex;align-items:center;gap:8px;
+  padding:calc(env(safe-area-inset-top) + 8px) 12px 8px;
+  background:linear-gradient(#0b1220f2,#0b1220cc 70%,transparent);pointer-events:none}
+#topbar>*{pointer-events:auto}
+#treeName{font-weight:700;font-size:16px;white-space:nowrap;max-width:32vw;overflow:hidden;text-overflow:ellipsis}
+#searchWrap{position:relative;flex:1;max-width:340px}
+#searchInput{padding:8px 12px;border-radius:999px;background:#101d38e6}
+#searchResults{position:absolute;top:42px;left:0;right:0;background:var(--card2);border:1px solid var(--line);
+  border-radius:12px;overflow:hidden;box-shadow:0 14px 40px #000a;max-height:40vh;overflow-y:auto}
+#searchResults div{padding:10px 14px;cursor:pointer;font-size:14px}
+#searchResults div:hover{background:#27395f}
+.iconBtn{background:#17264699;border:1px solid var(--line);color:var(--text);width:38px;height:38px;
+  border-radius:11px;font-size:17px;display:flex;align-items:center;justify-content:center;flex:none}
+.iconBtn:hover{background:#22345c}
+#syncDot{width:9px;height:9px;border-radius:50%;background:var(--ok);flex:none;box-shadow:0 0 8px var(--ok)}
+#syncDot.off{background:#f59e0b;box-shadow:0 0 8px #f59e0b}
+
+/* ---------- tree viewport ---------- */
+#viewport{position:fixed;inset:0;touch-action:none;cursor:grab}
+#viewport.panning{cursor:grabbing}
+#svg{width:100%;height:100%;display:block}
+
+/* nodes */
+.node{cursor:pointer;transition:opacity .35s, filter .35s}
+.node .card{fill:var(--card);stroke:var(--line);stroke-width:1.5;
+  filter:drop-shadow(0 6px 14px #0007)}
+.node:hover .card{stroke:#4a6398}
+.node .ring{fill:none;stroke-width:3}
+.node.m .ring{stroke:var(--male)} .node.f .ring{stroke:var(--female)} .node.o .ring{stroke:var(--other)}
+.node .avatarBg{fill:#22345c}
+.node .initials{fill:var(--text);font-size:22px;font-weight:700;text-anchor:middle}
+.node .name{fill:var(--text);font-size:14px;font-weight:700;text-anchor:middle}
+.node .name2{fill:var(--mut);font-size:12.5px;text-anchor:middle}
+.node .years{fill:#7d92b8;font-size:11px;text-anchor:middle}
+.node.dead image{filter:grayscale(1) brightness(.9)}
+.node.dead .card{stroke-dasharray:4 3}
+.node .ribbon{fill:#111a2e;stroke:#39507e;stroke-width:1}
+.node .cake{font-size:14px}
+.chip{cursor:pointer}
+.chip rect{fill:#233457;stroke:var(--line)}
+.chip text{fill:var(--mut);font-size:11px;font-weight:700;text-anchor:middle}
+.chip:hover rect{fill:#2d4370}
+
+/* selection pop-out */
+.node.sel{filter:drop-shadow(0 0 18px #f5b53fcc)}
+.node.sel .card{stroke:var(--gold);stroke-width:3;fill:var(--card2)}
+.node.sel .popper{transform:scale(1.22)}
+.popper{transform-box:fill-box;transform-origin:50% 50%;transition:transform .3s cubic-bezier(.2,1.4,.4,1)}
+.node.dim{opacity:.18;filter:grayscale(.6)}
+.node.kin .card{stroke:#f5b53f88;stroke-width:2}
+
+/* links */
+.lk{stroke:var(--line);stroke-width:2;fill:none;transition:stroke .35s,opacity .35s}
+.lk.couple{stroke:#597ab3}
+.lk.hl{stroke:var(--gold);stroke-width:3;filter:drop-shadow(0 0 6px #f5b53f88)}
+.lk.dimL{opacity:.12}
+
+/* zoomed-out simplification */
+#world.tiny .years,#world.tiny .name2,#world.tiny .ribbon,#world.tiny .cake{display:none}
+
+/* generation labels */
+.genLabel{fill:#31446e;font-size:26px;font-weight:800;letter-spacing:.15em}
+
+/* ---------- empty state ---------- */
+#emptyState{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;z-index:5}
+#emptyState p{color:var(--mut)}
+
+/* ---------- minimap ---------- */
+#minimap{position:fixed;right:12px;bottom:calc(env(safe-area-inset-bottom) + 12px);width:160px;height:110px;
+  background:#0d162bd9;border:1px solid var(--line);border-radius:12px;z-index:15;overflow:hidden;cursor:pointer}
+#minimap svg{width:100%;height:100%}
+#mmView{fill:#f5b53f22;stroke:var(--gold);stroke-width:1}
+
+/* ---------- detail panel ---------- */
+#panel{position:fixed;top:0;right:0;bottom:0;width:min(400px,100vw);z-index:30;
+  background:#0f1a31f5;border-left:1px solid var(--line);backdrop-filter:blur(14px);
+  transform:translateX(105%);transition:transform .32s cubic-bezier(.3,1,.4,1);
+  display:flex;flex-direction:column;box-shadow:-20px 0 60px #0008}
+#panel.open{transform:none}
+#panelScroll{overflow-y:auto;padding:18px 18px calc(env(safe-area-inset-bottom) + 24px);flex:1}
+#panelClose{position:absolute;top:calc(env(safe-area-inset-top) + 10px);right:14px;z-index:2}
+.pHead{display:flex;gap:14px;align-items:center;margin-top:calc(env(safe-area-inset-top) + 8px)}
+.pPhoto{width:84px;height:84px;border-radius:50%;object-fit:cover;border:3px solid var(--gold);flex:none;
+  background:#22345c;display:flex;align-items:center;justify-content:center;font-size:30px;font-weight:800}
+.pName{font-size:21px;font-weight:800;line-height:1.15}
+.pSub{color:var(--mut);font-size:13.5px;margin-top:3px}
+.tag{display:inline-block;font-size:11.5px;font-weight:700;padding:3px 9px;border-radius:999px;margin-top:7px}
+.tag.living{background:#14532daa;color:#86efac}
+.tag.deceased{background:#37415188;color:#cbd5e1}
+.secT{font-size:11.5px;font-weight:800;letter-spacing:.12em;color:#6f86b0;margin:20px 0 8px;text-transform:uppercase}
+.kv{display:flex;gap:10px;padding:7px 0;border-bottom:1px solid #1d2c4c;font-size:14px}
+.kv b{color:var(--mut);font-weight:600;width:96px;flex:none}
+.relChip{display:inline-flex;align-items:center;gap:6px;background:#1c2c4c;border:1px solid var(--line);
+  padding:6px 12px;border-radius:999px;font-size:13.5px;margin:3px 4px 3px 0;cursor:pointer}
+.relChip:hover{border-color:var(--gold)}
+.pBtns{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin-top:18px}
+.pBtn{padding:11px;border-radius:11px;background:#233457;color:var(--text);border:1px solid var(--line);font-weight:600;font-size:13.5px}
+.pBtn.gold{background:linear-gradient(135deg,#f5b53f,#f08a3c);color:#1a1206;border:0}
+.pBtn.red{background:#3a1d24;color:#f6a5a3;border-color:#5c2b33}
+.formRow{margin-bottom:11px}
+.formRow label{display:block;font-size:12.5px;color:var(--mut);margin-bottom:5px;font-weight:600}
+.form2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+
+/* ---------- dialogs / toast ---------- */
+dialog{background:var(--card);color:var(--text);border:1px solid var(--line);border-radius:18px;
+  padding:22px;width:min(420px,92vw);box-shadow:0 30px 80px #000c}
+dialog::backdrop{background:#050a14aa;backdrop-filter:blur(3px)}
+dialog h3{margin:0 0 6px}
+dialog .sub{color:var(--mut);font-size:13.5px;margin-bottom:14px}
+.memRow{display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid #1d2c4c;font-size:14px}
+.memRow span{flex:1;overflow:hidden;text-overflow:ellipsis}
+.memRow button{background:none;color:var(--danger);font-size:16px}
+#toast{position:fixed;left:50%;bottom:calc(env(safe-area-inset-bottom) + 20px);transform:translateX(-50%) translateY(80px);
+  background:#1c2c4cf0;border:1px solid var(--line);padding:10px 18px;border-radius:999px;font-size:13.5px;
+  z-index:60;transition:transform .3s;box-shadow:0 10px 30px #0009;white-space:nowrap}
+#toast.show{transform:translateX(-50%)}
+@media(max-width:640px){ #treeName{display:none} }
+</style>
+</head>
+<body>
+
+<!-- SETUP SCREEN -->
+<div id="screen-setup" class="screen hidden">
+  <div class="screenCard">
+    <div class="logo">🌳</div>
+    <h1>Family Tree Live</h1>
+    <p>One-time setup: paste your Firebase config below.<br>(From Firebase console → Project settings → Your apps — the <b>{ ... }</b> block. See SETUP_GUIDE.)</p>
+    <textarea id="cfgText" placeholder='{ apiKey: "...", authDomain: "...", projectId: "...", ... }'></textarea>
+    <button class="bigBtn" id="btnSaveCfg">Save &amp; continue</button>
+    <div class="err" id="cfgErr"></div>
+  </div>
+</div>
+
+<!-- AUTH SCREEN -->
+<div id="screen-auth" class="screen hidden">
+  <div class="screenCard">
+    <div class="logo">🌳</div>
+    <h1>Family Tree Live</h1>
+    <p>Your shared family tree, synced in real time.</p>
+    <button class="bigBtn" id="btnGoogle">Sign in with Google</button>
+    <button class="bigBtn alt" id="btnResetCfg">Change Firebase config</button>
+    <div class="err" id="authErr"></div>
+  </div>
+</div>
+
+<!-- ACCESS DENIED SCREEN -->
+<div id="screen-denied" class="screen hidden">
+  <div class="screenCard">
+    <div class="logo">🔒</div>
+    <h1>Not a member yet</h1>
+    <p id="deniedMsg">Ask the tree owner to add your email in ⚙ Members, then reload.</p>
+    <button class="bigBtn alt" id="btnReload">Reload</button>
+    <button class="bigBtn alt" id="btnSignout2">Sign out</button>
+  </div>
+</div>
+
+<!-- APP -->
+<div id="app" class="hidden">
+  <div id="viewport"><svg id="svg" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+      <clipPath id="pclip" clipPathUnits="objectBoundingBox"><circle cx=".5" cy=".5" r=".5"/></clipPath>
+    </defs>
+    <g id="world"><g id="gGen"></g><g id="gLinks"></g><g id="gNodes"></g></g>
+  </svg></div>
+
+  <div id="topbar">
+    <div id="syncDot" title="sync status"></div>
+    <div id="treeName">Our Family</div>
+    <div id="searchWrap">
+      <input id="searchInput" placeholder="🔍 Search family…" autocomplete="off">
+      <div id="searchResults" class="hidden"></div>
+    </div>
+    <button class="iconBtn" id="btnFit" title="Fit tree">⛶</button>
+    <button class="iconBtn" id="btnAdd" title="Add person">＋</button>
+    <button class="iconBtn" id="btnMembers" title="Members & settings">⚙</button>
+  </div>
+
+  <div id="emptyState" class="hidden">
+    <div style="font-size:56px">🌱</div>
+    <p>Your tree is empty. Plant the first person!</p>
+    <button class="bigBtn" style="width:auto;padding:13px 26px" id="btnFirst">Add first person</button>
+  </div>
+
+  <div id="minimap"><svg id="mmSvg"><g id="mmDots"></g><rect id="mmView" x="0" y="0" width="0" height="0" rx="2"/></svg></div>
+
+  <div id="panel">
+    <button class="iconBtn" id="panelClose">✕</button>
+    <div id="panelScroll"><div id="panelView"></div><div id="panelEdit" class="hidden"></div></div>
+  </div>
+</div>
+
+<dialog id="membersDlg">
+  <h3>⚙ Tree settings</h3>
+  <div class="sub">People listed here can view &amp; edit this tree.</div>
+  <div class="formRow"><label>Tree name</label><input id="setName"></div>
+  <div class="secT">Members</div>
+  <div id="memList"></div>
+  <div style="display:flex;gap:8px;margin-top:10px">
+    <input id="memEmail" type="email" placeholder="add gmail address…">
+    <button class="pBtn gold" style="flex:none" id="btnAddMem">Add</button>
+  </div>
+  <div class="pBtns" style="margin-top:16px">
+    <button class="pBtn" id="btnExport">⬇ Export JSON</button>
+    <button class="pBtn" id="btnImport">⬆ Import JSON</button>
+    <button class="pBtn" id="btnShareCfg">🔗 Copy invite link</button>
+    <button class="pBtn" id="btnSignout">Sign out</button>
+  </div>
+  <button class="pBtn" style="width:100%;margin-top:9px" id="btnCloseMem">Close</button>
+  <input type="file" id="importFile" accept=".json" class="hidden">
+</dialog>
+
+<div id="toast"></div>
+
+<script type="module">
+import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js';
+import { getAuth, GoogleAuthProvider, signInWithPopup, signInWithRedirect, getRedirectResult,
+  onAuthStateChanged, signOut } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js';
+import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager,
+  doc, getDoc, setDoc, updateDoc, deleteDoc, collection, onSnapshot, writeBatch }
+  from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js';
+
+/* ================= helpers ================= */
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const yearOf = d => d ? d.slice(0,4) : '';
+const uid = () => (crypto.randomUUID ? crypto.randomUUID() : Date.now()+'-'+Math.random().toString(36).slice(2));
+function ageOf(p){
+  if(!p.birthDate) return null;
+  const b = new Date(p.birthDate+'T00:00');
+  const end = p.deathDate ? new Date(p.deathDate+'T00:00') : new Date();
+  let a = end.getFullYear() - b.getFullYear();
+  if(end < new Date(end.getFullYear(), b.getMonth(), b.getDate())) a--;
+  return a >= 0 ? a : null;
+}
+function birthdaySoon(p){
+  if(!p.birthDate || p.status === 'deceased') return false;
+  const now = new Date(); const b = new Date(p.birthDate+'T00:00');
+  for(const y of [now.getFullYear(), now.getFullYear()+1]){
+    const d = (new Date(y, b.getMonth(), b.getDate()) - now) / 864e5;
+    if(d >= -0.5 && d <= 30) return true;
+  }
+  return false;
+}
+let toastT;
+function toast(msg){
+  const t = $('#toast'); t.textContent = msg; t.classList.add('show');
+  clearTimeout(toastT); toastT = setTimeout(()=>t.classList.remove('show'), 2600);
+}
+const fullName = p => [p.first, p.last].filter(Boolean).join(' ') || 'Unnamed';
+const initialsOf = p => ((p.first||' ')[0] + (p.last||' ')[0]).trim().toUpperCase() || '?';
+const gcolor = p => p.gender==='male' ? 'var(--male)' : p.gender==='female' ? 'var(--female)' : 'var(--other)';
+const gclass = p => p.gender==='male' ? 'm' : p.gender==='female' ? 'f' : 'o';
+
+/* ================= state ================= */
+const TREE_ID = 'family';
+let app, auth, db, user = null, treeMeta = null;
+let people = new Map();          // id -> person
+let selectedId = null;
+let collapsed = new Set(JSON.parse(localStorage.getItem('ftl_collapsed') || '[]'));
+let cam = { x: 0, y: 0, s: 1 };
+let LO = null;                   // layout result
+let unsubPeople = null, unsubTree = null;
+let didFit = false;
+
+/* ================= config ================= */
+function getConfig(){ try { return JSON.parse(localStorage.getItem('ftl_config')); } catch { return null; } }
+function parseConfigText(txt){
+  const m = txt.match(/\{[\s\S]*\}/);
+  if(!m) throw new Error('Paste the whole { ... } block.');
+  const obj = (new Function('return (' + m[0] + ')'))();
+  if(!obj.apiKey || !obj.projectId || !obj.authDomain) throw new Error('Config must include apiKey, authDomain, projectId.');
+  return obj;
+}
+// invite link support: index.html#cfg=<base64 config>
+(function importHashCfg(){
+  const h = location.hash.match(/#cfg=(.+)/);
+  if(h){ try {
+    localStorage.setItem('ftl_config', atob(decodeURIComponent(h[1])));
+    history.replaceState(null,'',location.pathname);
+  } catch{} }
+})();
+
+/* ================= screens ================= */
+const screens = ['screen-setup','screen-auth','screen-denied','app'];
+function show(id){ screens.forEach(s => $('#'+s).classList.toggle('hidden', s !== id)); }
+
+/* ================= boot ================= */
+function boot(){
+  const cfg = getConfig();
+  if(!cfg){ show('screen-setup'); return; }
+  try {
+    app = initializeApp(cfg);
+    auth = getAuth(app);
+    db = initializeFirestore(app, { localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }) });
+  } catch(e){ show('screen-setup'); $('#cfgErr').textContent = 'Config error: ' + e.message; return; }
+  getRedirectResult(auth).catch(e => { $('#authErr').textContent = e.message; });
+  onAuthStateChanged(auth, async u => {
+    user = u;
+    if(!u){ cleanup(); show('screen-auth'); return; }
+    await enterTree();
+  });
+}
+function cleanup(){
+  if(unsubPeople) unsubPeople(); if(unsubTree) unsubTree();
+  unsubPeople = unsubTree = null; people = new Map(); treeMeta = null; didFit = false;
+}
+
+async function enterTree(){
+  const tref = doc(db, 'trees', TREE_ID);
+  let snap;
+  try { snap = await getDoc(tref); }
+  catch(e){ show('screen-denied'); $('#deniedMsg').textContent = 'Could not read tree: ' + e.message; return; }
+  if(!snap.exists()){
+    try {
+      await setDoc(tref, { name: 'Our Family', owner: user.email, members: [user.email], created: Date.now() });
+    } catch(e){ show('screen-denied'); $('#deniedMsg').textContent = e.message; return; }
+  } else if(!(snap.data().members || []).includes(user.email)){
+    show('screen-denied');
+    $('#deniedMsg').innerHTML = 'Signed in as <b>' + esc(user.email) + '</b>.<br>Ask the tree owner to add this email under ⚙ Members, then reload.';
+    return;
+  }
+  show('app');
+  unsubTree = onSnapshot(tref, s => {
+    if(!s.exists()) return;
+    treeMeta = s.data();
+    $('#treeName').textContent = treeMeta.name || 'Our Family';
+    if(!(treeMeta.members || []).includes(user.email)){ show('screen-denied'); }
+  }, e => console.warn(e));
+  unsubPeople = onSnapshot(collection(db, 'trees', TREE_ID, 'people'), s => {
+    $('#syncDot').classList.toggle('off', s.metadata.fromCache && !navigator.onLine);
+    people = new Map();
+    s.forEach(d => people.set(d.id, d.data()));
+    const foreign = s.docChanges().find(c => !c.doc.metadata.hasPendingWrites && c.doc.data().updatedBy && c.doc.data().updatedBy !== user.email && c.type !== 'added');
+    if(foreign && !s.metadata.fromCache) toast('✏️ Updated by ' + foreign.doc.data().updatedBy.split('@')[0]);
+    refresh();
+  }, e => { toast('Sync error: ' + e.code); });
+}
+
+/* ================= CRUD (optimistic writes) ================= */
+function savePerson(p){
+  p.updatedBy = user.email; p.updatedAt = Date.now();
+  people.set(p.id, { ...p });                                   // instant local echo
+  setDoc(doc(db, 'trees', TREE_ID, 'people', p.id), p, { merge: true })
+    .catch(e => toast('Save failed: ' + e.code));
+}
+function blankPerson(){
+  return { id: uid(), first: '', last: '', gender: 'other', status: 'living',
+    birthDate: '', deathDate: '', phone: '', location: '', occupation: '',
+    notes: '', photo: '', parents: [], spouses: [] };
+}
+function deletePerson(id){
+  const b = writeBatch(db);
+  for(const q of people.values()){
+    if(q.id === id) continue;
+    const par = (q.parents||[]).filter(x => x !== id);
+    const sp  = (q.spouses||[]).filter(x => x !== id);
+    if(par.length !== (q.parents||[]).length || sp.length !== (q.spouses||[]).length){
+      b.update(doc(db,'trees',TREE_ID,'people',q.id), { parents: par, spouses: sp, updatedBy: user.email, updatedAt: Date.now() });
+      people.set(q.id, { ...q, parents: par, spouses: sp });
+    }
+  }
+  b.delete(doc(db,'trees',TREE_ID,'people',id));
+  people.delete(id);
+  b.commit().catch(e => toast('Delete failed: ' + e.code));
+}
+function addRelative(kind){
+  const sel = people.get(selectedId);
+  if(kind === 'parent' && sel && (sel.parents||[]).length >= 2){ toast('Already has two parents'); return; }
+  const np = blankPerson();
+  np.last = sel && kind !== 'spouse' ? (sel.last || '') : '';
+  if(kind === 'child' && sel){
+    np.parents = [sel.id];
+    const sp = (sel.spouses||[]).find(s => people.has(s));
+    if(sp) np.parents.push(sp);
+  }
+  if(kind === 'spouse' && sel){
+    np.spouses = [sel.id];
+    savePerson({ ...sel, spouses: [...new Set([...(sel.spouses||[]), np.id])] });
+  }
+  if(kind === 'parent' && sel){
+    const other = (sel.parents||[])[0];
+    if(other && people.has(other)){
+      const op = people.get(other);
+      np.spouses = [other];
+      savePerson({ ...op, spouses: [...new Set([...(op.spouses||[]), np.id])] });
+    }
+    savePerson({ ...sel, parents: [...(sel.parents||[]), np.id] });
+  }
+  savePerson(np);
+  selectedId = np.id;
+  refresh();
+  openEdit(np.id, true);
+}
+//==LAYOUT==
+/* ================= layout ================= */
+const NW=120, NH=150, CGAP=18, SGAP=36, VGAP=110, RGAP=110;
+
+function computeLayout(){
+  const nodes = new Map(), links = [];
+  const placed = new Set();
+  const kidsIdx = new Map();
+  for(const p of people.values()) for(const par of (p.parents||[])){
+    if(!kidsIdx.has(par)) kidsIdx.set(par, []);
+    kidsIdx.get(par).push(p);
+  }
+  const byBirth = (a,b) => (a.birthDate||'9999').localeCompare(b.birthDate||'9999');
+
+  function countDesc(memberIds){
+    let n = 0; const st = [...memberIds]; const vis = new Set(memberIds);
+    while(st.length){
+      const m = st.pop();
+      for(const k of (kidsIdx.get(m)||[])) if(!vis.has(k.id)){ vis.add(k.id); n++; st.push(k.id); }
+    }
+    return n;
+  }
+
+  function build(id){
+    if(placed.has(id) || !people.has(id)) return null;
+    const p = people.get(id);
+    const members = [id]; placed.add(id);
+    for(const s of (p.spouses||[])) if(people.has(s) && !placed.has(s)){ members.push(s); placed.add(s); }
+    let kids = []; const seen = new Set();
+    for(const m of members) for(const k of (kidsIdx.get(m)||[]))
+      if(!seen.has(k.id) && !placed.has(k.id)){ seen.add(k.id); kids.push(k); }
+    kids.sort(byBirth);
+    let children = [], hiddenCount = 0;
+    if(collapsed.has(id) && kids.length){ hiddenCount = countDesc(members); }
+    else children = kids.map(k => build(k.id)).filter(Boolean);
+    return { id, members, children, hiddenCount, hasKids: kids.length > 0 || hiddenCount > 0 };
+  }
+  function width(n){
+    n.unitW = n.members.length*NW + (n.members.length-1)*CGAP;
+    let cw = 0;
+    n.children.forEach(c => { width(c); cw += c.w; });
+    if(n.children.length) cw += (n.children.length-1)*SGAP;
+    n.childW = cw;
+    n.w = Math.max(n.unitW, cw, NW);
+  }
+  function assign(n, x0, gen){
+    const y = gen*(NH+VGAP);
+    const ux = x0 + (n.w - n.unitW)/2;
+    const anchorX = ux + n.unitW/2;
+    n.members.forEach((m,i) => {
+      const x = ux + i*(NW+CGAP);
+      const e = { x, y, gen };
+      if(i === 0 && n.hasKids) e.chip = { dx: anchorX - x, collapsed: collapsed.has(n.id), count: n.hiddenCount };
+      nodes.set(m, e);
+      if(i > 0) links.push({ type:'couple', a:n.members[i-1], b:m,
+        x1: x - CGAP, y1: y + 46, x2: x, y2: y + 46 });
+    });
+    let cx = x0 + (n.w - n.childW)/2;
+    const busY = y + NH + VGAP*0.55;
+    for(const c of n.children){
+      assign(c, cx, gen+1);
+      const cp = nodes.get(c.id);
+      links.push({ type:'pc', a:n.id, b:c.id,
+        d:`M ${anchorX} ${y+NH} L ${anchorX} ${busY} L ${cp.x+NW/2} ${busY} L ${cp.x+NW/2} ${cp.y}` });
+      cx += c.w + SGAP;
+    }
+  }
+
+  const roots = [...people.values()]
+    .filter(p => !(p.parents||[]).some(id => people.has(id)))
+    .sort(byBirth);
+  let X = 0, maxGen = 0;
+  for(const r of roots){
+    const t = build(r.id);
+    if(!t) continue;
+    width(t); assign(t, X, 0); X += t.w + RGAP;
+  }
+  // orphan safety net: anything never placed (cycles/bad data) goes in a top row
+  let ox = 0;
+  for(const p of people.values()) if(!nodes.has(p.id)){
+    nodes.set(p.id, { x: ox, y: -(NH+VGAP), gen: -1 }); ox += NW + SGAP;
+  }
+  for(const e of nodes.values()) maxGen = Math.max(maxGen, e.gen);
+  LO = { nodes, links, maxGen };
+}
+
+function bounds(){
+  let x0=1e9, y0=1e9, x1=-1e9, y1=-1e9;
+  for(const p of LO.nodes.values()){
+    x0 = Math.min(x0, p.x); y0 = Math.min(y0, p.y);
+    x1 = Math.max(x1, p.x+NW); y1 = Math.max(y1, p.y+NH);
+  }
+  return { x:x0, y:y0, w:x1-x0, h:y1-y0 };
+}
+
+/* ================= render ================= */
+const ROMAN = ['I','II','III','IV','V','VI','VII','VIII','IX','X','XI','XII'];
+
+function nodeSvg(p, pos){
+  const nm = esc((p.first||'—').slice(0,14));
+  const nm2 = esc((p.last||'').slice(0,16));
+  let yrs = '';
+  if(p.status === 'deceased') yrs = (yearOf(p.birthDate)||'?') + ' – ' + (yearOf(p.deathDate)||'?');
+  else if(p.birthDate) yrs = 'b. ' + yearOf(p.birthDate);
+  const photo = p.photo
+    ? `<image href="${esc(p.photo)}" x="24" y="10" width="72" height="72" clip-path="url(#pclip)" preserveAspectRatio="xMidYMid slice"/>`
+    : `<circle class="avatarBg" cx="60" cy="46" r="34"/><text class="initials" x="60" y="54">${esc(initialsOf(p))}</text>`;
+  const chip = pos.chip ? `<g class="chip" data-act="clps" data-cid="${p.id}" transform="translate(${pos.chip.dx-21},${NH-3})">
+      <rect width="42" height="19" rx="9.5"/>
+      <text x="21" y="13.5">${pos.chip.collapsed ? '+'+pos.chip.count : '−'}</text></g>` : '';
+  return `<g class="node ${gclass(p)} ${p.status==='deceased'?'dead':''}" data-id="${p.id}" transform="translate(${pos.x},${pos.y})">
+    <g class="popper">
+      <rect class="card" width="${NW}" height="${NH}" rx="16"/>
+      ${photo}
+      <circle class="ring" cx="60" cy="46" r="37"/>
+      ${p.status==='deceased' ? `<text x="104" y="22" font-size="13" fill="#94a3b8" text-anchor="middle">✝</text>` : ''}
+      ${birthdaySoon(p) ? `<text class="cake" x="8" y="22">🎂</text>` : ''}
+      <text class="name" x="60" y="103">${nm}</text>
+      <text class="name2" x="60" y="119">${nm2}</text>
+      <text class="years" x="60" y="137">${esc(yrs)}</text>
+    </g>${chip}</g>`;
+}
+
+function renderTree(){
+  const gN = $('#gNodes'), gL = $('#gLinks'), gG = $('#gGen');
+  if(!people.size){
+    gN.innerHTML = gL.innerHTML = gG.innerHTML = '';
+    $('#emptyState').classList.remove('hidden');
+    return;
+  }
+  $('#emptyState').classList.add('hidden');
+  gL.innerHTML = LO.links.map(l => l.type === 'couple'
+    ? `<line class="lk couple" data-a="${l.a}" data-b="${l.b}" x1="${l.x1}" y1="${l.y1}" x2="${l.x2}" y2="${l.y2}"/>`
+    : `<path class="lk" data-a="${l.a}" data-b="${l.b}" d="${l.d}"/>`).join('');
+  gN.innerHTML = [...LO.nodes.entries()]
+    .map(([id, pos]) => nodeSvg(people.get(id), pos)).join('');
+  let gl = '';
+  for(let g = 0; g <= LO.maxGen; g++)
+    gl += `<text class="genLabel" x="-170" y="${g*(NH+VGAP)+NH/2+9}">GEN ${ROMAN[g]||g+1}</text>`;
+  gG.innerHTML = gl;
+  updateSelection();
+}
+
+/* ================= selection pop-out ================= */
+function lineageSet(id){
+  const set = new Set([id]);
+  (function up(i){
+    for(const par of (people.get(i)?.parents||[]))
+      if(people.has(par) && !set.has(par)){ set.add(par); up(par); }
+  })(id);
+  (function down(i){
+    for(const k of people.values())
+      if((k.parents||[]).includes(i) && !set.has(k.id)){ set.add(k.id); down(k.id); }
+  })(id);
+  for(const s of (people.get(id)?.spouses||[])) if(people.has(s)) set.add(s);
+  return set;
+}
+function updateSelection(){
+  const set = selectedId && people.has(selectedId) ? lineageSet(selectedId) : null;
+  document.querySelectorAll('#gNodes .node').forEach(g => {
+    const id = g.dataset.id;
+    g.classList.toggle('sel', id === selectedId);
+    g.classList.toggle('kin', !!set && set.has(id) && id !== selectedId);
+    g.classList.toggle('dim', !!set && !set.has(id));
+  });
+  document.querySelectorAll('#gLinks .lk').forEach(l => {
+    const on = !!set && set.has(l.dataset.a) && set.has(l.dataset.b);
+    l.classList.toggle('hl', on);
+    l.classList.toggle('dimL', !!set && !on);
+  });
+  renderMinimap();
+}
+
+/* ================= camera ================= */
+function applyCam(){
+  $('#world').setAttribute('transform', `translate(${cam.x},${cam.y}) scale(${cam.s})`);
+  $('#world').classList.toggle('tiny', cam.s < 0.5);
+  renderMMView();
+}
+function fit(){
+  if(!LO || !LO.nodes.size) return;
+  const b = bounds(), vw = innerWidth, vh = innerHeight;
+  cam.s = Math.max(Math.min(vw/(b.w+240), vh/(b.h+260), 1.1), 0.05);
+  cam.x = (vw - b.w*cam.s)/2 - b.x*cam.s;
+  cam.y = (vh - b.h*cam.s)/2 - b.y*cam.s + 24;
+  applyCam();
+}
+let camAnim;
+function flyTo(id){
+  const p = LO.nodes.get(id); if(!p) return;
+  const s2 = Math.max(cam.s, 0.85);
+  const tx = innerWidth/2 - (p.x+NW/2)*s2;
+  const ty = innerHeight/2 - (p.y+NH/2)*s2;
+  const from = { ...cam }, t0 = performance.now();
+  cancelAnimationFrame(camAnim);
+  (function step(t){
+    const k = Math.min((t-t0)/450, 1), e = 1-Math.pow(1-k,3);
+    cam.x = from.x+(tx-from.x)*e; cam.y = from.y+(ty-from.y)*e; cam.s = from.s+(s2-from.s)*e;
+    applyCam();
+    if(k < 1) camAnim = requestAnimationFrame(step);
+  })(t0);
+}
+
+/* ================= minimap ================= */
+let mm = null;
+function renderMinimap(){
+  const g = $('#mmDots');
+  if(!LO || !LO.nodes.size){ g.innerHTML=''; mm=null; return; }
+  const b = bounds(), W=160, H=110, pad=8;
+  mm = { b, k: Math.min((W-2*pad)/Math.max(b.w,1), (H-2*pad)/Math.max(b.h,1)), pad };
+  g.innerHTML = [...LO.nodes.entries()].map(([id,p]) =>
+    `<circle cx="${(p.x+NW/2-b.x)*mm.k+pad}" cy="${(p.y+NH/2-b.y)*mm.k+pad}" r="${id===selectedId?3.4:2}"
+      fill="${id===selectedId?'#f5b53f':'#5f7bb0'}"/>`).join('');
+  renderMMView();
+}
+function renderMMView(){
+  if(!mm) return;
+  const r = $('#mmView');
+  const wx=(0-cam.x)/cam.s, wy=(0-cam.y)/cam.s, ww=innerWidth/cam.s, wh=innerHeight/cam.s;
+  r.setAttribute('x',(wx-mm.b.x)*mm.k+mm.pad); r.setAttribute('y',(wy-mm.b.y)*mm.k+mm.pad);
+  r.setAttribute('width',Math.max(ww*mm.k,6)); r.setAttribute('height',Math.max(wh*mm.k,6));
+}
+
+/* ================= refresh pipeline ================= */
+function refresh(){
+  computeLayout();
+  renderTree();
+  renderMinimap();
+  if(!didFit && people.size){ didFit = true; fit(); }
+  if(panelMode === 'view') renderPanel();   // never clobber the edit form mid-typing
+}
+/* ================= pan / zoom / tap ================= */
+const vp = $('#viewport');
+const pointers = new Map();
+let moved = false, pinch0 = null;
+
+vp.addEventListener('pointerdown', e => {
+  if(e.target.closest('#topbar,#minimap,#panel,#emptyState')) return;
+  vp.setPointerCapture(e.pointerId);
+  pointers.set(e.pointerId, { x:e.clientX, y:e.clientY });
+  if(pointers.size === 1) moved = false;
+  if(pointers.size === 2){
+    const [a,b] = [...pointers.values()];
+    pinch0 = { d:Math.hypot(a.x-b.x,a.y-b.y), s:cam.s, camx:cam.x, camy:cam.y,
+               cx:(a.x+b.x)/2, cy:(a.y+b.y)/2 };
+  }
+});
+vp.addEventListener('pointermove', e => {
+  if(!pointers.has(e.pointerId)) return;
+  const prev = pointers.get(e.pointerId);
+  const dx = e.clientX-prev.x, dy = e.clientY-prev.y;
+  pointers.set(e.pointerId, { x:e.clientX, y:e.clientY });
+  if(pointers.size === 1){
+    cam.x += dx; cam.y += dy;
+    if(Math.abs(dx)+Math.abs(dy) > 2) moved = true;
+    vp.classList.add('panning'); applyCam();
+  } else if(pointers.size === 2 && pinch0){
+    moved = true;
+    const [a,b] = [...pointers.values()];
+    const s2 = Math.min(Math.max(pinch0.s * Math.hypot(a.x-b.x,a.y-b.y)/pinch0.d, 0.05), 3);
+    const wx = (pinch0.cx-pinch0.camx)/pinch0.s, wy = (pinch0.cy-pinch0.camy)/pinch0.s;
+    const cx = (a.x+b.x)/2, cy = (a.y+b.y)/2;
+    cam.s = s2; cam.x = cx-wx*s2; cam.y = cy-wy*s2; applyCam();
+  }
+});
+['pointerup','pointercancel'].forEach(ev => vp.addEventListener(ev, e => {
+  pointers.delete(e.pointerId); pinch0 = null; vp.classList.remove('panning');
+}));
+vp.addEventListener('wheel', e => {
+  e.preventDefault();
+  zoomAt(e.clientX, e.clientY, Math.exp(-e.deltaY*0.0016));
+}, { passive:false });
+function zoomAt(sx, sy, f){
+  const s2 = Math.min(Math.max(cam.s*f, 0.05), 3);
+  const wx = (sx-cam.x)/cam.s, wy = (sy-cam.y)/cam.s;
+  cam.s = s2; cam.x = sx-wx*s2; cam.y = sy-wy*s2; applyCam();
+}
+vp.addEventListener('click', e => {
+  if(moved){ moved = false; return; }
+  const chip = e.target.closest('.chip');
+  if(chip){ toggleCollapse(chip.dataset.cid); return; }
+  const node = e.target.closest('.node');
+  select(node ? node.dataset.id : null);
+});
+function persistCollapsed(){ localStorage.setItem('ftl_collapsed', JSON.stringify([...collapsed])); }
+function toggleCollapse(id){
+  collapsed.has(id) ? collapsed.delete(id) : collapsed.add(id);
+  persistCollapsed(); refresh();
+}
+$('#minimap').addEventListener('click', e => {
+  if(!mm) return;
+  const r = $('#minimap').getBoundingClientRect();
+  const wx = (e.clientX-r.left-mm.pad)/mm.k + mm.b.x;
+  const wy = (e.clientY-r.top-mm.pad)/mm.k + mm.b.y;
+  cam.x = innerWidth/2 - wx*cam.s; cam.y = innerHeight/2 - wy*cam.s; applyCam();
+});
+addEventListener('resize', () => { applyCam(); });
+addEventListener('keydown', e => { if(e.key === 'Escape') select(null); });
+
+/* ================= detail panel ================= */
+let panelMode = null;
+const byBirthG = (a,b) => (a.birthDate||'9999').localeCompare(b.birthDate||'9999');
+
+function select(id){
+  selectedId = id;
+  updateSelection();
+  if(id && people.has(id)){ panelMode = 'view'; renderPanel(); $('#panel').classList.add('open'); }
+  else closePanel();
+}
+function closePanel(){ panelMode = null; $('#panel').classList.remove('open'); }
+function openEdit(id){
+  selectedId = id; panelMode = 'edit';
+  renderPanel(); $('#panel').classList.add('open');
+  updateSelection();
+}
+
+function relChips(ids){
+  const c = ids.filter(i => people.has(i)).map(i => {
+    const q = people.get(i);
+    return `<span class="relChip" data-go="${i}">${q.photo ? `<img src="${esc(q.photo)}" style="width:22px;height:22px;border-radius:50%;object-fit:cover">` : '👤'} ${esc(fullName(q))}</span>`;
+  }).join('');
+  return c || `<span style="color:var(--mut);font-size:13px">—</span>`;
+}
+function kv(label, val){ return val ? `<div class="kv"><b>${label}</b><span>${esc(val)}</span></div>` : ''; }
+
+function renderPanel(){
+  const p = people.get(selectedId);
+  if(!p){ closePanel(); return; }
+  if(panelMode === 'edit'){ renderEdit(p); return; }
+  $('#panelEdit').classList.add('hidden');
+  const v = $('#panelView'); v.classList.remove('hidden');
+  const kids = [...people.values()].filter(k => (k.parents||[]).includes(p.id)).sort(byBirthG);
+  const a = ageOf(p);
+  const fmt = d => d ? new Date(d+'T00:00').toLocaleDateString(undefined,{year:'numeric',month:'short',day:'numeric'}) : '';
+  v.innerHTML = `
+    <div class="pHead">
+      ${p.photo ? `<img class="pPhoto" src="${esc(p.photo)}">` : `<div class="pPhoto" style="color:${gcolor(p)}">${esc(initialsOf(p))}</div>`}
+      <div>
+        <div class="pName">${esc(fullName(p))} ${birthdaySoon(p)?'🎂':''}</div>
+        <div class="pSub">${esc([p.occupation, p.location].filter(Boolean).join(' · '))}</div>
+        <span class="tag ${p.status}">${p.status==='deceased' ? '✝ Deceased' : '● Living'}</span>
+      </div>
+    </div>
+    <div class="secT">Details</div>
+    ${kv('Born', p.birthDate ? fmt(p.birthDate) + (a!==null && p.status!=='deceased' ? ` (${a} yrs)` : '') : '')}
+    ${kv('Died', p.deathDate ? fmt(p.deathDate) + (a!==null ? ` (aged ${a})` : '') : '')}
+    ${kv('Gender', p.gender)}
+    ${kv('Phone', p.phone)}
+    ${kv('Location', p.location)}
+    ${kv('Occupation', p.occupation)}
+    ${kv('Notes', p.notes)}
+    <div class="secT">Parents</div>${relChips(p.parents||[])}
+    <div class="secT">Spouse / Partner</div>${relChips(p.spouses||[])}
+    <div class="secT">Children (${kids.length})</div>${relChips(kids.map(k=>k.id))}
+    <div class="pBtns">
+      <button class="pBtn gold" data-act="edit">✎ Edit</button>
+      <button class="pBtn" data-act="fly">🎯 Center in tree</button>
+      <button class="pBtn" data-act="addChild">＋ Add child</button>
+      <button class="pBtn" data-act="addSpouse">＋ Add spouse</button>
+      <button class="pBtn" data-act="addParent">＋ Add parent</button>
+      <button class="pBtn red" data-act="del">🗑 Delete</button>
+    </div>
+    ${p.updatedBy ? `<div style="color:#5a6f96;font-size:12px;margin-top:16px">Last edited by ${esc(p.updatedBy.split('@')[0])} · ${new Date(p.updatedAt).toLocaleString()}</div>` : ''}`;
+}
+
+function renderEdit(p){
+  $('#panelView').classList.add('hidden');
+  const v = $('#panelEdit'); v.classList.remove('hidden');
+  v.innerHTML = `
+    <div class="pHead" style="margin-bottom:14px">
+      ${p.photo ? `<img class="pPhoto" id="ePhotoPrev" src="${esc(p.photo)}">` : `<div class="pPhoto" id="ePhotoPrev">📷</div>`}
+      <div>
+        <div class="pName">${p.first ? 'Edit person' : 'New person'}</div>
+        <button class="pBtn" style="margin-top:8px;padding:7px 13px" id="ePhotoBtn">Choose photo</button>
+        <input type="file" id="ePhoto" accept="image/*" class="hidden">
+      </div>
+    </div>
+    <div class="form2">
+      <div class="formRow"><label>First name</label><input id="e_first" value="${esc(p.first)}"></div>
+      <div class="formRow"><label>Last name</label><input id="e_last" value="${esc(p.last)}"></div>
+      <div class="formRow"><label>Gender</label><select id="e_gender">
+        <option value="male">Male</option><option value="female">Female</option><option value="other">Other</option></select></div>
+      <div class="formRow"><label>Status</label><select id="e_status">
+        <option value="living">Living</option><option value="deceased">Deceased</option></select></div>
+      <div class="formRow"><label>Born</label><input id="e_birth" type="date" value="${esc(p.birthDate)}"></div>
+      <div class="formRow" id="deathRow"><label>Died</label><input id="e_death" type="date" value="${esc(p.deathDate)}"></div>
+      <div class="formRow"><label>Phone</label><input id="e_phone" type="tel" value="${esc(p.phone)}"></div>
+      <div class="formRow"><label>Location</label><input id="e_loc" value="${esc(p.location)}"></div>
+    </div>
+    <div class="formRow"><label>Occupation</label><input id="e_occ" value="${esc(p.occupation)}"></div>
+    <div class="formRow"><label>Notes</label><textarea id="e_notes" rows="3">${esc(p.notes)}</textarea></div>
+    <div class="pBtns">
+      <button class="pBtn gold" data-act="save">✓ Save</button>
+      <button class="pBtn" data-act="cancel">Cancel</button>
+    </div>`;
+  $('#e_gender').value = p.gender || 'other';
+  $('#e_status').value = p.status || 'living';
+  const dr = () => $('#deathRow').style.display = $('#e_status').value === 'deceased' ? '' : 'none';
+  $('#e_status').onchange = dr; dr();
+  let newPhoto = p.photo || '';
+  $('#ePhotoBtn').onclick = () => $('#ePhoto').click();
+  $('#ePhoto').onchange = async e => {
+    const f = e.target.files[0]; if(!f) return;
+    newPhoto = await resizePhoto(f);
+    const pv = $('#ePhotoPrev');
+    if(pv.tagName === 'IMG') pv.src = newPhoto;
+    else pv.outerHTML = `<img class="pPhoto" id="ePhotoPrev" src="${newPhoto}">`;
+  };
+  v.onclick = e => {
+    const act = e.target.closest('[data-act]')?.dataset.act;
+    if(act === 'cancel'){ panelMode = 'view'; renderPanel(); }
+    if(act === 'save'){
+      savePerson({ ...p,
+        first: $('#e_first').value.trim(), last: $('#e_last').value.trim(),
+        gender: $('#e_gender').value, status: $('#e_status').value,
+        birthDate: $('#e_birth').value,
+        deathDate: $('#e_status').value === 'deceased' ? $('#e_death').value : '',
+        phone: $('#e_phone').value.trim(), location: $('#e_loc').value.trim(),
+        occupation: $('#e_occ').value.trim(), notes: $('#e_notes').value.trim(),
+        photo: newPhoto });
+      panelMode = 'view'; refresh();
+    }
+  };
+}
+function resizePhoto(file){
+  return new Promise(res => {
+    const img = new Image();
+    img.onload = () => {
+      const S = 200, c = document.createElement('canvas');
+      c.width = c.height = S;
+      const k = Math.max(S/img.width, S/img.height);
+      c.getContext('2d').drawImage(img, (S-img.width*k)/2, (S-img.height*k)/2, img.width*k, img.height*k);
+      res(c.toDataURL('image/jpeg', 0.82));
+      URL.revokeObjectURL(img.src);
+    };
+    img.src = URL.createObjectURL(file);
+  });
+}
+$('#panelView').addEventListener('click', e => {
+  const go = e.target.closest('[data-go]');
+  if(go){ select(go.dataset.go); expandTo(go.dataset.go); flyTo(go.dataset.go); return; }
+  const act = e.target.closest('[data-act]')?.dataset.act;
+  const p = people.get(selectedId);
+  if(!act || !p) return;
+  if(act === 'edit') openEdit(p.id);
+  if(act === 'fly'){ expandTo(p.id); flyTo(p.id); }
+  if(act === 'addChild') addRelative('child');
+  if(act === 'addSpouse') addRelative('spouse');
+  if(act === 'addParent') addRelative('parent');
+  if(act === 'del' && confirm(`Delete ${fullName(p)} from the tree?`)){
+    deletePerson(p.id); select(null); refresh();
+  }
+});
+$('#panelClose').onclick = () => select(null);
+
+function expandTo(id){
+  let changed = false; const seen = new Set();
+  (function up(i){
+    for(const par of (people.get(i)?.parents||[])){
+      if(seen.has(par) || !people.has(par)) continue; seen.add(par);
+      if(collapsed.delete(par)) changed = true;
+      for(const s of (people.get(par)?.spouses||[])) if(collapsed.delete(s)) changed = true;
+      up(par);
+    }
+  })(id);
+  if(changed){ persistCollapsed(); refresh(); }
+}
+
+/* ================= search ================= */
+const si = $('#searchInput'), sr = $('#searchResults');
+si.addEventListener('input', () => {
+  const q = si.value.trim().toLowerCase();
+  if(!q){ sr.classList.add('hidden'); return; }
+  const hits = [...people.values()]
+    .filter(p => fullName(p).toLowerCase().includes(q) || (p.location||'').toLowerCase().includes(q))
+    .slice(0, 8);
+  sr.innerHTML = hits.map(p =>
+    `<div data-go="${p.id}">${esc(fullName(p))} <span style="color:var(--mut);font-size:12px">${yearOf(p.birthDate)||''}</span></div>`
+  ).join('') || `<div style="color:var(--mut)">No match</div>`;
+  sr.classList.remove('hidden');
+});
+sr.addEventListener('click', e => {
+  const go = e.target.closest('[data-go]');
+  if(!go) return;
+  sr.classList.add('hidden'); si.value = '';
+  expandTo(go.dataset.go); select(go.dataset.go); flyTo(go.dataset.go);
+});
+document.addEventListener('click', e => { if(!e.target.closest('#searchWrap')) sr.classList.add('hidden'); });
+
+/* ================= top bar ================= */
+$('#btnFit').onclick = fit;
+function addStandalone(){
+  const np = blankPerson(); savePerson(np); refresh(); openEdit(np.id);
+}
+$('#btnAdd').onclick = addStandalone;
+$('#btnFirst').onclick = addStandalone;
+
+/* ================= members / settings ================= */
+const dlg = $('#membersDlg');
+const treeRef = () => doc(db, 'trees', TREE_ID);
+$('#btnMembers').onclick = () => { renderMembers(); dlg.showModal(); };
+$('#btnCloseMem').onclick = () => dlg.close();
+function renderMembers(){
+  $('#setName').value = treeMeta?.name || '';
+  $('#memList').innerHTML = (treeMeta?.members||[]).map(m =>
+    `<div class="memRow"><span>${esc(m)}${m===treeMeta?.owner ? ' 👑' : ''}</span>
+     ${m !== treeMeta?.owner ? `<button data-rm="${esc(m)}">✕</button>` : ''}</div>`).join('');
+}
+$('#btnAddMem').onclick = () => {
+  const em = $('#memEmail').value.trim().toLowerCase();
+  if(!/.+@.+\..+/.test(em)){ toast('Enter a valid email'); return; }
+  const members = [...new Set([...(treeMeta?.members||[]), em])];
+  updateDoc(treeRef(), { members }).catch(e => toast(e.code));
+  treeMeta = { ...treeMeta, members }; $('#memEmail').value = ''; renderMembers();
+  toast(em + ' added — they can sign in now');
+};
+$('#memList').addEventListener('click', e => {
+  const rm = e.target.closest('[data-rm]')?.dataset.rm;
+  if(!rm || !confirm('Remove ' + rm + '?')) return;
+  const members = (treeMeta?.members||[]).filter(m => m !== rm);
+  updateDoc(treeRef(), { members }).catch(e2 => toast(e2.code));
+  treeMeta = { ...treeMeta, members }; renderMembers();
+});
+$('#setName').addEventListener('change', () => {
+  const name = $('#setName').value.trim() || 'Our Family';
+  updateDoc(treeRef(), { name }).catch(e => toast(e.code));
+  $('#treeName').textContent = name;
+});
+$('#btnSignout').onclick = () => { dlg.close(); signOut(auth); };
+
+/* export / import / invite */
+$('#btnExport').onclick = () => {
+  const blob = new Blob([JSON.stringify([...people.values()], null, 2)], { type:'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'family-tree-backup-' + new Date().toISOString().slice(0,10) + '.json';
+  a.click(); URL.revokeObjectURL(a.href);
+};
+$('#btnImport').onclick = () => $('#importFile').click();
+$('#importFile').onchange = e => {
+  const f = e.target.files[0]; if(!f) return;
+  const r = new FileReader();
+  r.onload = () => {
+    try {
+      const arr = JSON.parse(r.result);
+      if(!Array.isArray(arr)) throw new Error('not an array');
+      let n = 0;
+      for(const p of arr) if(p && p.id){ savePerson({ ...blankPerson(), ...p }); n++; }
+      refresh(); toast('Imported ' + n + ' people'); dlg.close();
+    } catch(err){ toast('Import failed: ' + err.message); }
+  };
+  r.readAsText(f);
+  e.target.value = '';
+};
+$('#btnShareCfg').onclick = async () => {
+  const link = location.origin + location.pathname + '#cfg=' + encodeURIComponent(btoa(localStorage.getItem('ftl_config')));
+  try { await navigator.clipboard.writeText(link); toast('Invite link copied — send it to your family member'); }
+  catch { prompt('Copy this invite link:', link); }
+};
+
+/* ================= auth & setup screens ================= */
+$('#btnSaveCfg').onclick = () => {
+  try {
+    const cfg = parseConfigText($('#cfgText').value);
+    localStorage.setItem('ftl_config', JSON.stringify(cfg));
+    location.reload();
+  } catch(e){ $('#cfgErr').textContent = e.message; }
+};
+$('#btnGoogle').onclick = async () => {
+  $('#authErr').textContent = '';
+  const prov = new GoogleAuthProvider();
+  try { await signInWithPopup(auth, prov); }
+  catch(e){
+    if(['auth/popup-blocked','auth/operation-not-supported-in-this-environment','auth/web-storage-unsupported'].includes(e.code)){
+      try { await signInWithRedirect(auth, prov); } catch(e2){ $('#authErr').textContent = e2.message; }
+    } else if(e.code !== 'auth/popup-closed-by-user' && e.code !== 'auth/cancelled-popup-request'){
+      $('#authErr').textContent = e.message;
+    }
+  }
+};
+$('#btnResetCfg').onclick = () => { if(confirm('Clear saved Firebase config?')){ localStorage.removeItem('ftl_config'); location.reload(); } };
+$('#btnReload').onclick = () => location.reload();
+$('#btnSignout2').onclick = async () => { await signOut(auth); location.reload(); };
+
+addEventListener('online',  () => { $('#syncDot').classList.remove('off'); toast('Back online — syncing'); });
+addEventListener('offline', () => { $('#syncDot').classList.add('off'); toast('Offline — changes will sync later'); });
+
+boot();
+</script>
+</body>
+</html>
