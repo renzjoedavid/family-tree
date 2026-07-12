@@ -96,6 +96,14 @@ input:focus,select:focus,textarea:focus{outline:2px solid #3b82f680;border-color
 .lk.couple{stroke:#597ab3}
 .lk.hl{stroke:var(--gold);stroke-width:3;filter:drop-shadow(0 0 6px #f5b53f88)}
 .lk.dimL{opacity:.12}
+.lk.extra{stroke:#9d7bf0;stroke-dasharray:7 5;opacity:.9}
+.lk.extra.couple{stroke:#c084fc}
+.lk.extra.hl{stroke:var(--gold)}
+.mainStar{fill:var(--gold);font-size:22px;text-anchor:middle;filter:drop-shadow(0 0 6px #f5b53f)}
+.unlink{color:var(--danger);font-weight:700;margin-left:3px;cursor:pointer;font-size:12px;padding:0 2px}
+.linkRow{display:flex;align-items:center;gap:9px;padding:8px 6px;border-bottom:1px solid #1d2c4c;
+  font-size:14px;cursor:pointer;border-radius:8px}
+.linkRow:hover{background:#22345c}
 
 /* zoomed-out simplification */
 #world.tiny .years,#world.tiny .name2,#world.tiny .ribbon,#world.tiny .cake{display:none}
@@ -251,6 +259,20 @@ dialog .sub{color:var(--mut);font-size:13.5px;margin-bottom:14px}
   <input type="file" id="importFile" accept=".json" class="hidden">
 </dialog>
 
+<dialog id="linkDlg">
+  <h3>🔗 Link existing person</h3>
+  <div class="sub" id="linkSub"></div>
+  <div class="formRow"><label>The person I pick below is…</label>
+    <select id="linkRel">
+      <option value="parent">a PARENT of this person</option>
+      <option value="spouse">a SPOUSE / PARTNER of this person</option>
+      <option value="child">a CHILD of this person</option>
+    </select></div>
+  <input id="linkSearch" placeholder="Type a name…" autocomplete="off">
+  <div id="linkList" style="max-height:220px;overflow-y:auto;margin-top:8px"></div>
+  <button class="pBtn" style="width:100%;margin-top:12px" id="btnCloseLink">Cancel</button>
+</dialog>
+
 <div id="toast"></div>
 
 <script type="module">
@@ -364,9 +386,11 @@ async function enterTree(){
   show('app');
   unsubTree = onSnapshot(tref, s => {
     if(!s.exists()) return;
+    const prevMain = treeMeta?.mainId;
     treeMeta = s.data();
     $('#treeName').textContent = treeMeta.name || 'Our Family';
     if(!(treeMeta.members || []).includes(user.email)){ show('screen-denied'); }
+    if(treeMeta.mainId !== prevMain && people.size) refresh();
   }, e => console.warn(e));
   unsubPeople = onSnapshot(collection(db, 'trees', TREE_ID, 'people'), s => {
     $('#syncDot').classList.toggle('off', s.metadata.fromCache && !navigator.onLine);
@@ -437,36 +461,81 @@ function addRelative(kind){
 /* ================= layout ================= */
 const NW=120, NH=150, CGAP=18, SGAP=36, VGAP=110, RGAP=110;
 
+/*==LAYOUT-CORE-BEGIN==*/
+function pickMain(){
+  if(treeMeta?.mainId && people.has(treeMeta.mainId)) return treeMeta.mainId;
+  let best = null;
+  for(const p of people.values())
+    if(!best || (p.birthDate||'9999') < (best.birthDate||'9999')) best = p;
+  return best ? best.id : null;
+}
+
 function computeLayout(){
   const nodes = new Map(), links = [];
-  const placed = new Set();
+  const persons = [...people.values()];
   const kidsIdx = new Map();
-  for(const p of people.values()) for(const par of (p.parents||[])){
+  for(const p of persons) for(const par of (p.parents||[])) if(people.has(par)){
     if(!kidsIdx.has(par)) kidsIdx.set(par, []);
     kidsIdx.get(par).push(p);
   }
   const byBirth = (a,b) => (a.birthDate||'9999').localeCompare(b.birthDate||'9999');
+  const mainId = pickMain();
 
-  function countDesc(memberIds){
-    let n = 0; const st = [...memberIds]; const vis = new Set(memberIds);
+  /* -- 1. generation levels from relationships (BFS from the main person):
+        parent = one row up, child = one row down, spouse = same row.
+        A parentless spouse therefore lands on their partner's row, never on row 1. */
+  const gen = new Map(), comps = [], seenG = new Set();
+  function bfs(start){
+    const comp = [start]; seenG.add(start); gen.set(start, 0);
+    const q = [start];
+    while(q.length){
+      const id = q.shift(), g = gen.get(id), p = people.get(id), nb = [];
+      for(const x of (p.parents||[])) if(people.has(x)) nb.push([x, g-1]);
+      for(const x of (p.spouses||[])) if(people.has(x)) nb.push([x, g]);
+      for(const k of (kidsIdx.get(id)||[])) nb.push([k.id, g+1]);
+      for(const [n2, g2] of nb) if(!seenG.has(n2)){ seenG.add(n2); gen.set(n2, g2); comp.push(n2); q.push(n2); }
+    }
+    return comp;
+  }
+  const idOrder = mainId ? [mainId, ...persons.map(p => p.id)] : persons.map(p => p.id);
+  for(const id of idOrder) if(people.has(id) && !seenG.has(id)) comps.push(bfs(id));
+  for(const comp of comps){
+    const m = Math.min(...comp.map(i => gen.get(i)));
+    if(m) comp.forEach(i => gen.set(i, gen.get(i) - m));
+  }
+
+  /* -- 2. unit forest layout; every unit's row comes from its generation level */
+  const placed = new Set(), hiddenSet = new Set();
+  const coupleDrawn = new Set(), pcDrawn = new Set();
+
+  function hideDesc(memberIds){
+    let n = 0; const st = [...memberIds];
     while(st.length){
       const m = st.pop();
-      for(const k of (kidsIdx.get(m)||[])) if(!vis.has(k.id)){ vis.add(k.id); n++; st.push(k.id); }
+      for(const k of (kidsIdx.get(m)||[])) if(!placed.has(k.id)){
+        hiddenSet.add(k.id); placed.add(k.id); n++; st.push(k.id);
+        for(const s of (k.spouses||[]))
+          if(people.has(s) && !placed.has(s) && !(people.get(s).parents||[]).some(x => people.has(x))){
+            hiddenSet.add(s); placed.add(s); n++; st.push(s);
+          }
+      }
     }
     return n;
   }
-
   function build(id){
     if(placed.has(id) || !people.has(id)) return null;
     const p = people.get(id);
-    const members = [id]; placed.add(id);
-    for(const s of (p.spouses||[])) if(people.has(s) && !placed.has(s)){ members.push(s); placed.add(s); }
+    placed.add(id);
+    const sps = (p.spouses||[]).filter(s => people.has(s) && !placed.has(s));
+    sps.forEach(s => placed.add(s));
+    // primary sits between spouses so adjacent pairs are real couples
+    const members = sps.length ? [sps[0], id, ...sps.slice(1)] : [id];
     let kids = []; const seen = new Set();
     for(const m of members) for(const k of (kidsIdx.get(m)||[]))
       if(!seen.has(k.id) && !placed.has(k.id)){ seen.add(k.id); kids.push(k); }
     kids.sort(byBirth);
     let children = [], hiddenCount = 0;
-    if(collapsed.has(id) && kids.length){ hiddenCount = countDesc(members); }
+    if(collapsed.has(id) && kids.length) hiddenCount = hideDesc(members);
     else children = kids.map(k => build(k.id)).filter(Boolean);
     return { id, members, children, hiddenCount, hasKids: kids.length > 0 || hiddenCount > 0 };
   }
@@ -478,46 +547,79 @@ function computeLayout(){
     n.childW = cw;
     n.w = Math.max(n.unitW, cw, NW);
   }
-  function assign(n, x0, gen){
-    const y = gen*(NH+VGAP);
+  function assign(n, x0){
+    const g = gen.get(n.id) ?? 0, y = g*(NH+VGAP);
     const ux = x0 + (n.w - n.unitW)/2;
     const anchorX = ux + n.unitW/2;
-    n.members.forEach((m,i) => {
+    n.members.forEach((m, i) => {
       const x = ux + i*(NW+CGAP);
-      const e = { x, y, gen };
-      if(i === 0 && n.hasKids) e.chip = { dx: anchorX - x, collapsed: collapsed.has(n.id), count: n.hiddenCount };
+      const e = { x, y, gen: g };
+      if(i === 0 && n.hasKids) e.chip = { dx: anchorX - x, collapsed: collapsed.has(n.id), count: n.hiddenCount, unit: n.id };
+      if(m === mainId) e.main = true;
       nodes.set(m, e);
-      if(i > 0) links.push({ type:'couple', a:n.members[i-1], b:m,
-        x1: x - CGAP, y1: y + 46, x2: x, y2: y + 46 });
+      if(i > 0){
+        const a = n.members[i-1], b = m;
+        const married = (people.get(a)?.spouses||[]).includes(b) || (people.get(b)?.spouses||[]).includes(a);
+        if(married){
+          links.push({ type:'couple', a, b, x1: x - CGAP, y1: y + 46, x2: x, y2: y + 46 });
+          coupleDrawn.add(a+'|'+b); coupleDrawn.add(b+'|'+a);
+        }
+      }
     });
     let cx = x0 + (n.w - n.childW)/2;
     const busY = y + NH + VGAP*0.55;
     for(const c of n.children){
-      assign(c, cx, gen+1);
+      assign(c, cx);
       const cp = nodes.get(c.id);
       links.push({ type:'pc', a:n.id, b:c.id,
         d:`M ${anchorX} ${y+NH} L ${anchorX} ${busY} L ${cp.x+NW/2} ${busY} L ${cp.x+NW/2} ${cp.y}` });
+      for(const m of n.members) if((people.get(c.id).parents||[]).includes(m)) pcDrawn.add(m+'|'+c.id);
       cx += c.w + SGAP;
     }
   }
 
-  const roots = [...people.values()]
-    .filter(p => !(p.parents||[]).some(id => people.has(id)))
-    .sort(byBirth);
-  let X = 0, maxGen = 0;
-  for(const r of roots){
-    const t = build(r.id);
-    if(!t) continue;
-    width(t); assign(t, X, 0); X += t.w + RGAP;
+  let X = 0;
+  for(const comp of comps){
+    let roots = comp.map(i => people.get(i))
+      .filter(p => !(p.parents||[]).some(x => people.has(x))).sort(byBirth);
+    if(!roots.length) roots = [people.get(comp[0])];      // cycle fallback
+    for(const r of roots){
+      const t = build(r.id); if(!t) continue;
+      width(t); assign(t, X); X += t.w + RGAP;
+    }
+    for(const i of comp) if(!placed.has(i)){              // safety net inside comp
+      const t = build(i); if(!t) continue;
+      width(t); assign(t, X); X += t.w + RGAP;
+    }
   }
-  // orphan safety net: anything never placed (cycles/bad data) goes in a top row
-  let ox = 0;
-  for(const p of people.values()) if(!nodes.has(p.id)){
-    nodes.set(p.id, { x: ox, y: -(NH+VGAP), gen: -1 }); ox += NW + SGAP;
+
+  /* -- 3. always-visible cross connections:
+        second-parent links for married-in families, spouse links across branches */
+  const extraCSeen = new Set();
+  for(const p of persons){
+    if(!nodes.has(p.id)) continue;
+    for(const par of (p.parents||[])){
+      if(!people.has(par) || !nodes.has(par) || pcDrawn.has(par+'|'+p.id)) continue;
+      const a = nodes.get(par), b = nodes.get(p.id);
+      links.push({ type:'extra', a: par, b: p.id,
+        d:`M ${a.x+NW/2} ${a.y+NH} C ${a.x+NW/2} ${a.y+NH+70}, ${b.x+NW/2} ${b.y-70}, ${b.x+NW/2} ${b.y}` });
+    }
+    for(const s of (p.spouses||[])){
+      if(!people.has(s) || !nodes.has(s) || coupleDrawn.has(p.id+'|'+s)) continue;
+      const key = [p.id, s].sort().join('|');
+      if(extraCSeen.has(key)) continue;
+      extraCSeen.add(key);
+      const a = nodes.get(p.id), b = nodes.get(s);
+      const midY = Math.min(a.y, b.y) - 55;
+      links.push({ type:'extraC', a: p.id, b: s,
+        d:`M ${a.x+NW/2} ${a.y} C ${a.x+NW/2} ${midY}, ${b.x+NW/2} ${midY}, ${b.x+NW/2} ${b.y}` });
+    }
   }
+  let maxGen = 0;
   for(const e of nodes.values()) maxGen = Math.max(maxGen, e.gen);
-  LO = { nodes, links, maxGen };
+  LO = { nodes, links, maxGen, mainId };
 }
+/*==LAYOUT-CORE-END==*/
 
 function bounds(){
   let x0=1e9, y0=1e9, x1=-1e9, y1=-1e9;
@@ -540,7 +642,7 @@ function nodeSvg(p, pos){
   const photo = p.photo
     ? `<image href="${esc(p.photo)}" x="24" y="10" width="72" height="72" clip-path="url(#pclip)" preserveAspectRatio="xMidYMid slice"/>`
     : `<circle class="avatarBg" cx="60" cy="46" r="34"/><text class="initials" x="60" y="54">${esc(initialsOf(p))}</text>`;
-  const chip = pos.chip ? `<g class="chip" data-act="clps" data-cid="${p.id}" transform="translate(${pos.chip.dx-21},${NH-3})">
+  const chip = pos.chip ? `<g class="chip" data-act="clps" data-cid="${pos.chip.unit}" transform="translate(${pos.chip.dx-21},${NH-3})">
       <rect width="42" height="19" rx="9.5"/>
       <text x="21" y="13.5">${pos.chip.collapsed ? '+'+pos.chip.count : '−'}</text></g>` : '';
   return `<g class="node ${gclass(p)} ${p.status==='deceased'?'dead':''}" data-id="${p.id}" transform="translate(${pos.x},${pos.y})">
@@ -553,6 +655,7 @@ function nodeSvg(p, pos){
       <text class="name" x="60" y="103">${nm}</text>
       <text class="name2" x="60" y="119">${nm2}</text>
       <text class="years" x="60" y="137">${esc(yrs)}</text>
+      ${pos.main ? `<text class="mainStar" x="60" y="-10">★</text>` : ''}
     </g>${chip}</g>`;
 }
 
@@ -564,9 +667,11 @@ function renderTree(){
     return;
   }
   $('#emptyState').classList.add('hidden');
-  gL.innerHTML = LO.links.map(l => l.type === 'couple'
-    ? `<line class="lk couple" data-a="${l.a}" data-b="${l.b}" x1="${l.x1}" y1="${l.y1}" x2="${l.x2}" y2="${l.y2}"/>`
-    : `<path class="lk" data-a="${l.a}" data-b="${l.b}" d="${l.d}"/>`).join('');
+  gL.innerHTML = LO.links.map(l => {
+    if(l.type === 'couple') return `<line class="lk couple" data-a="${l.a}" data-b="${l.b}" x1="${l.x1}" y1="${l.y1}" x2="${l.x2}" y2="${l.y2}"/>`;
+    const cls = l.type === 'pc' ? 'lk' : l.type === 'extraC' ? 'lk extra couple' : 'lk extra';
+    return `<path class="${cls}" data-a="${l.a}" data-b="${l.b}" d="${l.d}"/>`;
+  }).join('');
   gN.innerHTML = [...LO.nodes.entries()]
     .map(([id, pos]) => nodeSvg(people.get(id), pos)).join('');
   let gl = '';
@@ -661,7 +766,10 @@ function refresh(){
   computeLayout();
   renderTree();
   renderMinimap();
-  if(!didFit && people.size){ didFit = true; fit(); }
+  if(!didFit && people.size){
+    didFit = true; fit();
+    if(LO.mainId && cam.s < 0.5) flyTo(LO.mainId);   // big tree: open centered on the main person
+  }
   if(panelMode === 'view') renderPanel();   // never clobber the edit form mid-typing
 }
 /* ================= pan / zoom / tap ================= */
@@ -669,11 +777,12 @@ const vp = $('#viewport');
 const pointers = new Map();
 let moved = false, pinch0 = null;
 
+let downEl = null;
 vp.addEventListener('pointerdown', e => {
   if(e.target.closest('#topbar,#minimap,#panel,#emptyState')) return;
   vp.setPointerCapture(e.pointerId);
   pointers.set(e.pointerId, { x:e.clientX, y:e.clientY });
-  if(pointers.size === 1) moved = false;
+  if(pointers.size === 1){ moved = false; downEl = e.target; }
   if(pointers.size === 2){
     const [a,b] = [...pointers.values()];
     pinch0 = { d:Math.hypot(a.x-b.x,a.y-b.y), s:cam.s, camx:cam.x, camy:cam.y,
@@ -698,9 +807,26 @@ vp.addEventListener('pointermove', e => {
     cam.s = s2; cam.x = cx-wx*s2; cam.y = cy-wy*s2; applyCam();
   }
 });
-['pointerup','pointercancel'].forEach(ev => vp.addEventListener(ev, e => {
+/* NOTE: with setPointerCapture, 'click' targets the viewport itself, so taps are
+   resolved from the element recorded at pointerdown — this makes selection work
+   reliably on both mouse and touch. */
+vp.addEventListener('pointerup', e => {
   pointers.delete(e.pointerId); pinch0 = null; vp.classList.remove('panning');
-}));
+  if(pointers.size === 0){
+    if(!moved && downEl) handleTap(downEl);
+    downEl = null;
+  }
+});
+vp.addEventListener('pointercancel', e => {
+  pointers.delete(e.pointerId); pinch0 = null; vp.classList.remove('panning');
+  if(pointers.size === 0) downEl = null;
+});
+function handleTap(el){
+  const chip = el.closest ? el.closest('.chip') : null;
+  if(chip){ toggleCollapse(chip.dataset.cid); return; }
+  const node = el.closest ? el.closest('.node') : null;
+  select(node ? node.dataset.id : null);
+}
 vp.addEventListener('wheel', e => {
   e.preventDefault();
   zoomAt(e.clientX, e.clientY, Math.exp(-e.deltaY*0.0016));
@@ -710,13 +836,6 @@ function zoomAt(sx, sy, f){
   const wx = (sx-cam.x)/cam.s, wy = (sy-cam.y)/cam.s;
   cam.s = s2; cam.x = sx-wx*s2; cam.y = sy-wy*s2; applyCam();
 }
-vp.addEventListener('click', e => {
-  if(moved){ moved = false; return; }
-  const chip = e.target.closest('.chip');
-  if(chip){ toggleCollapse(chip.dataset.cid); return; }
-  const node = e.target.closest('.node');
-  select(node ? node.dataset.id : null);
-});
 function persistCollapsed(){ localStorage.setItem('ftl_collapsed', JSON.stringify([...collapsed])); }
 function toggleCollapse(id){
   collapsed.has(id) ? collapsed.delete(id) : collapsed.add(id);
@@ -749,10 +868,10 @@ function openEdit(id){
   updateSelection();
 }
 
-function relChips(ids){
+function relChips(ids, rel){
   const c = ids.filter(i => people.has(i)).map(i => {
     const q = people.get(i);
-    return `<span class="relChip" data-go="${i}">${q.photo ? `<img src="${esc(q.photo)}" style="width:22px;height:22px;border-radius:50%;object-fit:cover">` : '👤'} ${esc(fullName(q))}</span>`;
+    return `<span class="relChip" data-go="${i}">${q.photo ? `<img src="${esc(q.photo)}" style="width:22px;height:22px;border-radius:50%;object-fit:cover">` : '👤'} ${esc(fullName(q))}<b class="unlink" data-unrel="${rel}" data-unid="${i}" title="Unlink">✕</b></span>`;
   }).join('');
   return c || `<span style="color:var(--mut);font-size:13px">—</span>`;
 }
@@ -784,15 +903,17 @@ function renderPanel(){
     ${kv('Location', p.location)}
     ${kv('Occupation', p.occupation)}
     ${kv('Notes', p.notes)}
-    <div class="secT">Parents</div>${relChips(p.parents||[])}
-    <div class="secT">Spouse / Partner</div>${relChips(p.spouses||[])}
-    <div class="secT">Children (${kids.length})</div>${relChips(kids.map(k=>k.id))}
+    <div class="secT">Parents</div>${relChips(p.parents||[], 'parent')}
+    <div class="secT">Spouse / Partner</div>${relChips(p.spouses||[], 'spouse')}
+    <div class="secT">Children (${kids.length})</div>${relChips(kids.map(k=>k.id), 'child')}
     <div class="pBtns">
       <button class="pBtn gold" data-act="edit">✎ Edit</button>
       <button class="pBtn" data-act="fly">🎯 Center in tree</button>
       <button class="pBtn" data-act="addChild">＋ Add child</button>
       <button class="pBtn" data-act="addSpouse">＋ Add spouse</button>
       <button class="pBtn" data-act="addParent">＋ Add parent</button>
+      <button class="pBtn" data-act="link">🔗 Link existing…</button>
+      <button class="pBtn" data-act="main">★ Set as main person</button>
       <button class="pBtn red" data-act="del">🗑 Delete</button>
     </div>
     ${p.updatedBy ? `<div style="color:#5a6f96;font-size:12px;margin-top:16px">Last edited by ${esc(p.updatedBy.split('@')[0])} · ${new Date(p.updatedAt).toLocaleString()}</div>` : ''}`;
@@ -872,6 +993,8 @@ function resizePhoto(file){
   });
 }
 $('#panelView').addEventListener('click', e => {
+  const un = e.target.closest('.unlink');
+  if(un){ unlink(un.dataset.unrel, un.dataset.unid); return; }
   const go = e.target.closest('[data-go]');
   if(go){ select(go.dataset.go); expandTo(go.dataset.go); flyTo(go.dataset.go); return; }
   const act = e.target.closest('[data-act]')?.dataset.act;
@@ -882,9 +1005,89 @@ $('#panelView').addEventListener('click', e => {
   if(act === 'addChild') addRelative('child');
   if(act === 'addSpouse') addRelative('spouse');
   if(act === 'addParent') addRelative('parent');
+  if(act === 'link') openLinkDlg();
+  if(act === 'main'){
+    updateDoc(treeRef(), { mainId: p.id }).catch(e2 => toast(e2.code));
+    treeMeta = { ...treeMeta, mainId: p.id };
+    refresh(); toast('★ ' + fullName(p) + ' is now the main person');
+  }
   if(act === 'del' && confirm(`Delete ${fullName(p)} from the tree?`)){
     deletePerson(p.id); select(null); refresh();
   }
+});
+
+/* ---- unlink & link-existing ---- */
+function unlink(rel, otherId){
+  const p = people.get(selectedId), o = people.get(otherId);
+  if(!p || !o) return;
+  if(!confirm(`Unlink ${fullName(o)} as ${rel} of ${fullName(p)}?`)) return;
+  if(rel === 'parent')  savePerson({ ...p, parents: (p.parents||[]).filter(x => x !== otherId) });
+  if(rel === 'child')   savePerson({ ...o, parents: (o.parents||[]).filter(x => x !== p.id) });
+  if(rel === 'spouse'){
+    savePerson({ ...p, spouses: (p.spouses||[]).filter(x => x !== otherId) });
+    savePerson({ ...o, spouses: (o.spouses||[]).filter(x => x !== p.id) });
+  }
+  refresh(); renderPanel();
+}
+function isAncestorOf(a, b){          // is a an ancestor of b?
+  const st = [...(people.get(b)?.parents||[])]; const seen = new Set();
+  while(st.length){
+    const i = st.pop();
+    if(i === a) return true;
+    if(seen.has(i) || !people.has(i)) continue; seen.add(i);
+    st.push(...(people.get(i).parents||[]));
+  }
+  return false;
+}
+const linkDlg = $('#linkDlg');
+function openLinkDlg(){
+  const p = people.get(selectedId); if(!p) return;
+  $('#linkSub').textContent = 'Connect an existing person to ' + fullName(p) + '.';
+  $('#linkSearch').value = '';
+  renderLinkList();
+  linkDlg.showModal();
+}
+function renderLinkList(){
+  const p = people.get(selectedId); if(!p) return;
+  const q = $('#linkSearch').value.trim().toLowerCase();
+  const rel = $('#linkRel').value;
+  const related = new Set([p.id, ...(p.parents||[]), ...(p.spouses||[]),
+    ...[...people.values()].filter(k => (k.parents||[]).includes(p.id)).map(k => k.id)]);
+  const hits = [...people.values()]
+    .filter(o => !related.has(o.id))
+    .filter(o => !q || fullName(o).toLowerCase().includes(q))
+    .slice(0, 20);
+  $('#linkList').innerHTML = hits.map(o =>
+    `<div class="linkRow" data-lid="${o.id}">${o.photo ? `<img src="${esc(o.photo)}" style="width:26px;height:26px;border-radius:50%;object-fit:cover">` : '👤'}
+     <span>${esc(fullName(o))}</span><span style="color:var(--mut);font-size:12px">${yearOf(o.birthDate)||''}</span></div>`
+  ).join('') || `<div style="color:var(--mut);font-size:13px;padding:8px">No matching person</div>`;
+  void rel;
+}
+$('#linkSearch').addEventListener('input', renderLinkList);
+$('#linkRel').addEventListener('change', renderLinkList);
+$('#btnCloseLink').onclick = () => linkDlg.close();
+$('#linkList').addEventListener('click', e => {
+  const row = e.target.closest('[data-lid]'); if(!row) return;
+  const rel = $('#linkRel').value;
+  const p = people.get(selectedId), o = people.get(row.dataset.lid);
+  if(!p || !o) return;
+  if(rel === 'parent'){
+    if((p.parents||[]).length >= 2){ toast('Already has two parents'); return; }
+    if(isAncestorOf(p.id, o.id)){ toast('Impossible: that would make a loop'); return; }
+    savePerson({ ...p, parents: [...(p.parents||[]), o.id] });
+  }
+  if(rel === 'child'){
+    if((o.parents||[]).length >= 2){ toast(fullName(o) + ' already has two parents'); return; }
+    if(isAncestorOf(o.id, p.id)){ toast('Impossible: that would make a loop'); return; }
+    savePerson({ ...o, parents: [...(o.parents||[]), p.id] });
+  }
+  if(rel === 'spouse'){
+    savePerson({ ...p, spouses: [...new Set([...(p.spouses||[]), o.id])] });
+    savePerson({ ...o, spouses: [...new Set([...(o.spouses||[]), p.id])] });
+  }
+  linkDlg.close();
+  refresh(); renderPanel();
+  toast('🔗 Linked ' + fullName(o));
 });
 $('#panelClose').onclick = () => select(null);
 
