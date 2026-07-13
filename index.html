@@ -547,7 +547,7 @@ function computeLayout(){
     n.childW = cw;
     n.w = Math.max(n.unitW, cw, NW);
   }
-  function assign(n, x0){
+  function assign(n, x0, out){
     const g = gen.get(n.id) ?? 0, y = g*(NH+VGAP);
     const ux = x0 + (n.w - n.unitW)/2;
     const anchorX = ux + n.unitW/2;
@@ -556,12 +556,12 @@ function computeLayout(){
       const e = { x, y, gen: g };
       if(i === 0 && n.hasKids) e.chip = { dx: anchorX - x, collapsed: collapsed.has(n.id), count: n.hiddenCount, unit: n.id };
       if(m === mainId) e.main = true;
-      nodes.set(m, e);
+      out.nodes.set(m, e);
       if(i > 0){
         const a = n.members[i-1], b = m;
         const married = (people.get(a)?.spouses||[]).includes(b) || (people.get(b)?.spouses||[]).includes(a);
         if(married){
-          links.push({ type:'couple', a, b, x1: x - CGAP, y1: y + 46, x2: x, y2: y + 46 });
+          out.links.push({ type:'couple', a, b, x1: x - CGAP, y1: y + 46, x2: x, y2: y + 46 });
           coupleDrawn.add(a+'|'+b); coupleDrawn.add(b+'|'+a);
         }
       }
@@ -569,13 +569,68 @@ function computeLayout(){
     let cx = x0 + (n.w - n.childW)/2;
     const busY = y + NH + VGAP*0.55;
     for(const c of n.children){
-      assign(c, cx);
-      const cp = nodes.get(c.id);
-      links.push({ type:'pc', a:n.id, b:c.id,
-        d:`M ${anchorX} ${y+NH} L ${anchorX} ${busY} L ${cp.x+NW/2} ${busY} L ${cp.x+NW/2} ${cp.y}` });
+      assign(c, cx, out);
+      const cp = out.nodes.get(c.id);
+      out.links.push({ type:'pc', a:n.id, b:c.id,
+        ax: anchorX, ay: y+NH, busY, cx: cp.x+NW/2, cy: cp.y });
       for(const m of n.members) if((people.get(c.id).parents||[]).includes(m)) pcDrawn.add(m+'|'+c.id);
       cx += c.w + SGAP;
     }
+  }
+
+  /* dynamic placement: each subtree is laid out at 0, then shifted to sit as close
+     as possible to the already-placed people it connects to (left OR right),
+     using per-row occupied intervals to avoid overlaps */
+  const rowIv = new Map();                     // gen -> [[x0,x1],...]
+  const ivHit = (g, a, b) => (rowIv.get(g)||[]).some(([x0,x1]) => a < x1 && b > x0);
+  function commitTree(t, fallbackX){
+    const out = { nodes: new Map(), links: [] };
+    assign(t, 0, out);
+    // per-row extents of this subtree
+    const ext = new Map();
+    for(const e of out.nodes.values()){
+      const ee = ext.get(e.gen) || [1e9, -1e9];
+      ee[0] = Math.min(ee[0], e.x); ee[1] = Math.max(ee[1], e.x+NW);
+      ext.set(e.gen, ee);
+    }
+    const fits = d => { for(const [g,[a,b]] of ext) if(ivHit(g, a+d-RGAP*0.6, b+d+RGAP*0.6)) return false; return true; };
+    // desired shift = average pull of all connections into the placed tree
+    let sum = 0, cnt = 0;
+    for(const [id, e] of out.nodes){
+      const p = people.get(id);
+      for(const x of (p.parents||[])) if(nodes.has(x)){ sum += nodes.get(x).x - e.x; cnt++; }
+      for(const x of (p.spouses||[])) if(nodes.has(x)){ sum += nodes.get(x).x - e.x; cnt++; }
+      for(const k of (kidsIdx.get(id)||[])) if(nodes.has(k.id)){ sum += nodes.get(k.id).x - e.x; cnt++; }
+    }
+    let delta;
+    if(!cnt){
+      delta = fallbackX;
+      let guard = 0; while(!fits(delta) && guard++ < 500) delta += 60;
+    } else {
+      const desired = sum/cnt;
+      let r = desired, l = desired, found = null;
+      for(let i = 0; i < 500 && found === null; i++){
+        if(fits(r)){ found = r; break; }
+        if(fits(l)){ found = l; break; }
+        r += 60; l -= 60;
+      }
+      delta = found !== null ? found : fallbackX;
+      if(found === null){ let guard = 0; while(!fits(delta) && guard++ < 500) delta += 60; }
+    }
+    let right = -1e9;
+    for(const [id, e] of out.nodes){
+      e.x += delta;
+      nodes.set(id, e);
+      if(!rowIv.has(e.gen)) rowIv.set(e.gen, []);
+      rowIv.get(e.gen).push([e.x, e.x+NW]);
+      right = Math.max(right, e.x+NW);
+    }
+    for(const l of out.links){
+      if(l.type === 'couple'){ l.x1 += delta; l.x2 += delta; }
+      else { l.ax += delta; l.cx += delta; }
+      links.push(l);
+    }
+    return right;
   }
 
   let X = 0;
@@ -585,13 +640,16 @@ function computeLayout(){
     if(!roots.length) roots = [people.get(comp[0])];      // cycle fallback
     for(const r of roots){
       const t = build(r.id); if(!t) continue;
-      width(t); assign(t, X); X += t.w + RGAP;
+      width(t); X = Math.max(X, commitTree(t, X) + RGAP);
     }
     for(const i of comp) if(!placed.has(i)){              // safety net inside comp
       const t = build(i); if(!t) continue;
-      width(t); assign(t, X); X += t.w + RGAP;
+      width(t); X = Math.max(X, commitTree(t, X) + RGAP);
     }
   }
+  // build elbow paths for parent-child links now that final positions are known
+  for(const l of links) if(l.type === 'pc')
+    l.d = `M ${l.ax} ${l.ay} L ${l.ax} ${l.busY} L ${l.cx} ${l.busY} L ${l.cx} ${l.cy}`;
 
   /* -- 3. always-visible cross connections:
         second-parent links for married-in families, spouse links across branches */
@@ -674,9 +732,10 @@ function renderTree(){
   }).join('');
   gN.innerHTML = [...LO.nodes.entries()]
     .map(([id, pos]) => nodeSvg(people.get(id), pos)).join('');
+  const lb = bounds();
   let gl = '';
   for(let g = 0; g <= LO.maxGen; g++)
-    gl += `<text class="genLabel" x="-170" y="${g*(NH+VGAP)+NH/2+9}">GEN ${ROMAN[g]||g+1}</text>`;
+    gl += `<text class="genLabel" x="${lb.x-170}" y="${g*(NH+VGAP)+NH/2+9}">GEN ${ROMAN[g]||g+1}</text>`;
   gG.innerHTML = gl;
   updateSelection();
 }
